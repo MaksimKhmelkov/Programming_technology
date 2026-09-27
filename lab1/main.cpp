@@ -209,9 +209,9 @@ void task3c() {
 void task3Menu() {
     int choice;
     do {
-        printf("\n--- Задание 3 ---\n");
+        printf("\nЗадание 3\n");
         printf("1. Простые числа в квадрат\n");
-        printf("2. Сортировка (нечётные ↑, чётные ↓)\n");
+        printf("2. Сортировка\n");
         printf("3. Уникальные числа в диапазоне\n");
         printf("0. Назад\n");
         printf("Выбор: ");
@@ -238,7 +238,6 @@ int main() {
 
     int choice;
     do {
-        printf("\n===== МЕНЮ =====\n");
         printf("1. Подсчёт уникальных слов\n");
         printf("2. Индексация позиций слов\n");
         printf("3. Алгоритмы STL\n");
@@ -249,11 +248,11 @@ int main() {
 
         switch (choice) {
             case 1:
-                printf("\n=== Задание 1 ===\n");
+                printf("\nЗадание 1\n");
                 countWords(filename);
                 break;
             case 2: {
-                printf("\n=== Задание 2 ===\n");
+                printf("\nЗадание 2\n");
                 map<string, vector<int>> positions = indexWords(filename);
                 printIndex(positions);
                 break;
