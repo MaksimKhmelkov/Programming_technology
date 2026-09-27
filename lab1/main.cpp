@@ -1,4 +1,3 @@
-#include <iostream>
 #include <fstream>
 #include <map>
 #include <vector>
@@ -36,24 +35,6 @@ int readIntInRange(const char* prompt, int lo, int hi) {
         if (value >= lo && value <= hi)
             return value;
         printf("Ошибка: число должно быть в диапазоне [%d, %d].\n", lo, hi);
-    }
-}
-
-int readIntMax(const char* prompt, int maxVal) {
-    while (true) {
-        int value = readInt(prompt);
-        if (value <= maxVal)
-            return value;
-        printf("Ошибка: число не должно превышать %d.\n", maxVal);
-    }
-}
-
-int readIntMin(const char* prompt, int minVal) {
-    while (true) {
-        int value = readInt(prompt);
-        if (value >= minVal)
-            return value;
-        printf("Ошибка: число должно быть не меньше %d.\n", minVal);
     }
 }
 
