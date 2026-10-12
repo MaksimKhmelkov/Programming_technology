@@ -6,9 +6,6 @@
 #include <cstdlib>
 #include <set>
 
-// ============================================================
-// FileReader
-// ============================================================
 FileReader::FileReader(const std::string& path, size_t blockSize)
     : path_(path)
     , blockSize_(blockSize == 0 ? DEFAULT_BLOCK_SIZE : blockSize)
@@ -36,9 +33,7 @@ size_t FileReader::readBlock() {
     return bytesRead_;
 }
 
-// ============================================================
-// Вспомогательные функции для слов
-// ============================================================
+
 static inline char normalizeChar(unsigned char c) {
     if (c < 128) return static_cast<char>(std::tolower(c));
     return static_cast<char>(c);
@@ -47,9 +42,6 @@ static inline bool isWordChar(unsigned char c) {
     return std::isalpha(c) || c >= 128;
 }
 
-// ============================================================
-// WordCounter
-// ============================================================
 WordCounter::WordCounter(size_t blockSize) : blockSize_(blockSize) {}
 
 void WordCounter::handleChunk(const char* data, size_t size, bool lastChunk) {
@@ -90,9 +82,6 @@ void WordCounter::print() const {
         std::printf("%s - %d\n", p.first.c_str(), p.second);
 }
 
-// ============================================================
-// WordIndexer
-// ============================================================
 WordIndexer::WordIndexer(size_t blockSize)
     : blockSize_(blockSize), pos_(0) {}
 
@@ -140,9 +129,6 @@ void WordIndexer::print() const {
     }
 }
 
-// ============================================================
-// VectorAlgorithms
-// ============================================================
 bool VectorAlgorithms::isPrime(int n) {
     if (n < 2) return false;
     for (int i = 2; i * i <= n; ++i)
@@ -185,9 +171,6 @@ std::vector<int> VectorAlgorithms::uniqueInRange(const std::vector<int>& v,
     return std::vector<int>(result.begin(), result.end());
 }
 
-// ============================================================
-// ConsoleInput
-// ============================================================
 int ConsoleInput::readInt(const char* prompt) {
     int value;
     while (true) {
@@ -207,9 +190,6 @@ int ConsoleInput::readIntInRange(const char* prompt, int lo, int hi) {
     }
 }
 
-// ============================================================
-// Menu
-// ============================================================
 Menu::Menu(const std::string& filename) : filename_(filename) {}
 
 void Menu::task1() {
