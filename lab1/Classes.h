@@ -6,9 +6,6 @@
 #include <map>
 #include <vector>
 
-// ============================================================
-// 1. FileReader — блочное чтение файла
-// ============================================================
 class FileReader {
 public:
     static const size_t DEFAULT_BLOCK_SIZE = 8192;
@@ -35,9 +32,6 @@ private:
     size_t bytesRead_;
 };
 
-// ============================================================
-// 2. WordCounter — задание 1
-// ============================================================
 class WordCounter {
 public:
     explicit WordCounter(size_t blockSize = 0);
@@ -54,9 +48,7 @@ private:
     void handleChunk(const char* data, size_t size, bool lastChunk);
 };
 
-// ============================================================
-// 3. WordIndexer — задание 2
-// ============================================================
+
 class WordIndexer {
 public:
     explicit WordIndexer(size_t blockSize = 0);
@@ -74,9 +66,7 @@ private:
     void handleChunk(const char* data, size_t size, bool lastChunk);
 };
 
-// ============================================================
-// 4. VectorAlgorithms — задание 3
-// ============================================================
+
 class VectorAlgorithms {
 public:
     static const int MIN_N   = 1;
@@ -94,18 +84,12 @@ private:
     static bool isPrime(int n);
 };
 
-// ============================================================
-// 5. ConsoleInput — ввод
-// ============================================================
 class ConsoleInput {
 public:
     static int readInt(const char* prompt);
     static int readIntInRange(const char* prompt, int lo, int hi);
 };
 
-// ============================================================
-// 6. Menu — пользовательский интерфейс
-// ============================================================
 class Menu {
 public:
     explicit Menu(const std::string& filename);
