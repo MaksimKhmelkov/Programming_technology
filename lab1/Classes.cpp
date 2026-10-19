@@ -1,5 +1,6 @@
 #include "Classes.h"
 
+#include <fstream>
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
@@ -77,9 +78,19 @@ bool WordCounter::processFile(const std::string& path) {
     return true;
 }
 
-void WordCounter::print() const {
-    for (const auto& p : counter_)
-        std::printf("%s - %d\n", p.first.c_str(), p.second);
+void WordCounter::print(const std::string& outFilename) const {
+    std::ofstream out(outFilename);
+    
+    if (!out.is_open()){
+        std::printf("Не удалось открыть файл для записи: %s\n", outFilename.c_str());
+        return;
+    }
+
+    for (const auto& p : counter_){
+        out << p.first << ' - ' << p.second << "\n";
+    }
+    
+    std::printf("Результат задания 1 записан в файл: %s\n", outFilename.c_str());
 }
 
 WordIndexer::WordIndexer(size_t blockSize)
@@ -118,15 +129,24 @@ bool WordIndexer::processFile(const std::string& path) {
     return true;
 }
 
-void WordIndexer::print() const {
-    for (const auto& p : positions_) {
-        std::printf("%s -- ", p.first.c_str());
-        for (size_t i = 0; i < p.second.size(); ++i) {
-            std::printf("%d", p.second[i]);
-            if (i + 1 < p.second.size()) std::printf(", ");
-        }
-        std::printf("\n");
+void WordIndexer::print(const std::string& outFilename) const {
+    std::ofstream out(outFilename);
+    
+    if (!out.is_open()) {
+        std::printf("Не удалось открыть файл для записи: %s\n", outFilename.c_str());
+        return;
     }
+
+    for (const auto& p : positions_) {
+        out << p.first << " -- ";
+        for (size_t i = 0; i < p.second.size(); ++i) {
+            out << p.second[i];
+            if (i + 1 < p.second.size()) out << ", ";
+        }
+        out << "\n";
+    }
+    
+    std::printf("Результат задания 2 записан в файл: %s\n", outFilename.c_str());
 }
 
 bool VectorAlgorithms::isPrime(int n) {
@@ -195,13 +215,13 @@ Menu::Menu(const std::string& filename) : filename_(filename) {}
 void Menu::task1() {
     std::printf("\nЗадание 1\n");
     WordCounter counter;
-    if (counter.processFile(filename_)) counter.print();
+    if (counter.processFile(filename_)) counter.print("result1.txt");
 }
 
 void Menu::task2() {
     std::printf("\nЗадание 2\n");
     WordIndexer indexer;
-    if (indexer.processFile(filename_)) indexer.print();
+    if (indexer.processFile(filename_)) indexer.print("result2.txt");
 }
 
 void Menu::readGenerationParams(int& n, int& lo, int& hi) {

@@ -38,7 +38,7 @@ public:
 
     bool processFile(const std::string& path);
     const std::map<std::string, int>& results() const { return counter_; }
-    void print() const;
+    void print(const std::string& outFilename) const;
 
 private:
     std::map<std::string, int> counter_;
@@ -55,7 +55,7 @@ public:
 
     bool processFile(const std::string& path);
     const std::map<std::string, std::vector<int>>& index() const { return positions_; }
-    void print() const;
+    void print(const std::string& outFilename) const;
 
 private:
     std::map<std::string, std::vector<int>> positions_;
