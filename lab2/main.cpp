@@ -7,25 +7,19 @@
 #include <ctime>
 #include <cstdlib>
 #include <windows.h>
+#include <cctype>
+#include <clocale>
 
 using namespace std;
 
-// ============================================================
-// 1. Проверка, что текст — это HTML (а не markdown/asciidoc/др.)
-// ============================================================
 bool checkHtml(const string& text) {
-    // В HTML обязательно должны быть теги.
     regex tag("<[a-zA-Z][^>]*>");
     if (!regex_search(text, tag)) {
         cout << "Ошибка: в тексте нет HTML-тегов.\n";
         return false;
     }
 
-    // Признаки других языков разметки — сообщаем об ошибке.
-    // Проверка на Markdown (заголовки #, жирный текст **, списки - * +)
     regex markdown("(?:^|\\n)#{1,6}\\s|\\*\\*[^*]+\\*\\*|(?:^|\\n)[-*+]\\s");
-    
-    // Проверка на AsciiDoc (заголовки =, списки *)
     regex asciidoc("(?:^|\\n)={1,6}\\s|(?:^|\\n)\\*{1,5}\\s");
 
     if (regex_search(text, markdown)) {
@@ -37,27 +31,20 @@ bool checkHtml(const string& text) {
         return false;
     }
 
-    // Проверка парности основных тегов (упрощённо).
-    if (text.find("<html") != string::npos &&
-        text.find("</html>") == string::npos) {
+    if (text.find("<html") != string::npos && text.find("</html>") == string::npos) {
         cout << "Ошибка: не закрыт тег <html>.\n";
         return false;
     }
-    if (text.find("<body") != string::npos &&
-        text.find("</body>") == string::npos) {
+    if (text.find("<body") != string::npos && text.find("</body>") == string::npos) {
         cout << "Ошибка: не закрыт тег <body>.\n";
         return false;
     }
     return true;
 }
 
-// ============================================================
-// 2. Поиск заголовков, абзацев, списков
-// ============================================================
 vector<string> findHeaders(const string& text) {
     vector<string> res;
-    // <h1>...</h1> ... <h6>...</h6>
-    regex re("<h[1-6][^>]*>(.*?)</h[1-6]>", regex::icase);
+    regex re("<h[1-6][^>]*>([\\s\\S]*?)</h[1-6]>", regex::icase);
     for (sregex_iterator it(text.begin(), text.end(), re), end; it != end; ++it)
         res.push_back((*it)[1].str());
     return res;
@@ -65,7 +52,7 @@ vector<string> findHeaders(const string& text) {
 
 vector<string> findParagraphs(const string& text) {
     vector<string> res;
-    regex re("<p[^>]*>(.*?)</p>", regex::icase);
+    regex re("<p[^>]*>([\\s\\S]*?)</p>", regex::icase);
     for (sregex_iterator it(text.begin(), text.end(), re), end; it != end; ++it)
         res.push_back((*it)[1].str());
     return res;
@@ -73,10 +60,22 @@ vector<string> findParagraphs(const string& text) {
 
 vector<string> findLists(const string& text) {
     vector<string> res;
-    // весь блок <ul>...</ul> или <ol>...</ol>
-    regex re("<(ul|ol)[^>]*>(.*?)</(ul|ol)>", regex::icase);
-    for (sregex_iterator it(text.begin(), text.end(), re), end; it != end; ++it)
-        res.push_back((*it)[2].str());
+    regex re("<(ul|ol)[^>]*>([\\s\\S]*?)</\\1>", regex::icase);
+    for (sregex_iterator it(text.begin(), text.end(), re), end; it != end; ++it) {
+        string raw = (*it)[2].str();
+        regex re_li("<li[^>]*>", regex::icase);
+        string clean = regex_replace(raw, re_li, "\n  - ");
+        regex re_li_close("</li>", regex::icase);
+        clean = regex_replace(clean, re_li_close, "");
+        
+        size_t first = clean.find_first_not_of(" \n\r\t");
+        if (first != string::npos) {
+            size_t last = clean.find_last_not_of(" \n\r\t");
+            res.push_back(clean.substr(first, (last - first + 1)));
+        } else {
+            res.push_back("");
+        }
+    }
     return res;
 }
 
@@ -86,87 +85,314 @@ void printVector(const string& title, const vector<string>& v) {
         cout << i + 1 << ") " << v[i] << "\n";
 }
 
-// ============================================================
-// 3. Анкета: ввод + проверка + генератор
-// ============================================================
-
-// 3a. Ввод пользовательских данных
-void inputUser(string& surname, string& name, string& patronymic,
-               string& birth, string& phone, string& email) {
-    cout << "Введите: Фамилия Имя Отчество ДатаРождения Телефон Почта\n> ";
-    cin >> surname >> name >> patronymic >> birth >> phone >> email;
+string trim(const string& s) {
+    size_t start = s.find_first_not_of(" \t\n\r");
+    if (start == string::npos) return "";
+    size_t end = s.find_last_not_of(" \t\n\r");
+    return s.substr(start, end - start + 1);
 }
 
-// Вспомогательная: первая буква заглавная, остальные строчные
-string normalizeWord(const string& w) {
-    if (w.empty()) return w;
-    string r = w;
-    r[0] = toupper((unsigned char)r[0]);
-    for (size_t i = 1; i < r.size(); ++i)
-        r[i] = tolower((unsigned char)r[i]);
-    return r;
+#include <locale>
+
+// Очистка ФИО через wide strings (надёжная работа с UTF-8)
+string cleanNameString(const string& s) {
+    // Конвертируем UTF-8 string в wstring
+    int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, NULL, 0);
+    if (len == 0) return s;
+    
+    vector<wchar_t> wbuf(len);
+    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, wbuf.data(), len);
+    wstring ws(wbuf.data());
+    
+    // Очищаем: оставляем только буквы
+    wstring result;
+    for (wchar_t wc : ws) {
+        if (iswalpha(wc)) {
+            result += wc;
+        }
+    }
+    
+    // Конвертируем обратно в UTF-8 string
+    int utf8_len = WideCharToMultiByte(CP_UTF8, 0, result.c_str(), -1, NULL, 0, NULL, NULL);
+    if (utf8_len == 0) return "";
+    
+    vector<char> utf8_buf(utf8_len);
+    WideCharToMultiByte(CP_UTF8, 0, result.c_str(), -1, utf8_buf.data(), utf8_len, NULL, NULL);
+    
+    return string(utf8_buf.data());
 }
 
-// 3b. Проверка и приведение к шаблону
-// Возвращает true, если все поля удалось привести к корректному виду.
+// Транслитерация через проверку байтов UTF-8
+string transliterate(const string& rus) {
+    string res = "";
+    for (size_t i = 0; i < rus.size(); ) {
+        unsigned char c = (unsigned char)rus[i];
+        
+        // Латиница — оставляем как есть
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) {
+            res += rus[i];
+            i++;
+        }
+        // Кириллица UTF-8 (2 байта)
+        else if (c >= 0xC0 && i + 1 < rus.size()) {
+            unsigned char c2 = (unsigned char)rus[i + 1];
+            
+            // а (D0 B0)
+            if (c == 0xD0 && c2 == 0xB0) res += 'a';
+            // б (D0 B1)
+            else if (c == 0xD0 && c2 == 0xB1) res += 'b';
+            // в (D0 B2)
+            else if (c == 0xD0 && c2 == 0xB2) res += 'v';
+            // г (D0 B3)
+            else if (c == 0xD0 && c2 == 0xB3) res += 'g';
+            // д (D0 B4)
+            else if (c == 0xD0 && c2 == 0xB4) res += 'd';
+            // е (D0 B5)
+            else if (c == 0xD0 && c2 == 0xB5) res += 'e';
+            // ё (D1 91)
+            else if (c == 0xD1 && c2 == 0x91) res += "yo";
+            // ж (D0 B6)
+            else if (c == 0xD0 && c2 == 0xB6) res += "zh";
+            // з (D0 B7)
+            else if (c == 0xD0 && c2 == 0xB7) res += 'z';
+            // и (D0 B8)
+            else if (c == 0xD0 && c2 == 0xB8) res += 'i';
+            // й (D0 B9)
+            else if (c == 0xD0 && c2 == 0xB9) res += 'y';
+            // к (D0 BA)
+            else if (c == 0xD0 && c2 == 0xBA) res += 'k';
+            // л (D0 BB)
+            else if (c == 0xD0 && c2 == 0xBB) res += 'l';
+            // м (D0 BC)
+            else if (c == 0xD0 && c2 == 0xBC) res += 'm';
+            // н (D0 BD)
+            else if (c == 0xD0 && c2 == 0xBD) res += 'n';
+            // о (D0 BE)
+            else if (c == 0xD0 && c2 == 0xBE) res += 'o';
+            // п (D0 BF)
+            else if (c == 0xD0 && c2 == 0xBF) res += 'p';
+            // р (D1 80)
+            else if (c == 0xD1 && c2 == 0x80) res += 'r';
+            // с (D1 81)
+            else if (c == 0xD1 && c2 == 0x81) res += 's';
+            // т (D1 82)
+            else if (c == 0xD1 && c2 == 0x82) res += 't';
+            // у (D1 83)
+            else if (c == 0xD1 && c2 == 0x83) res += 'u';
+            // ф (D1 84)
+            else if (c == 0xD1 && c2 == 0x84) res += 'f';
+            // х (D1 85)
+            else if (c == 0xD1 && c2 == 0x85) res += 'h';
+            // ц (D1 86)
+            else if (c == 0xD1 && c2 == 0x86) res += 'c';
+            // ч (D1 87)
+            else if (c == 0xD1 && c2 == 0x87) res += "ch";
+            // ш (D1 88)
+            else if (c == 0xD1 && c2 == 0x88) res += "sh";
+            // щ (D1 89)
+            else if (c == 0xD1 && c2 == 0x89) res += "sch";
+            // ъ (D1 8A)
+            else if (c == 0xD1 && c2 == 0x8A) res += "";
+            // ы (D1 8B)
+            else if (c == 0xD1 && c2 == 0x8B) res += 'y';
+            // ь (D1 8C)
+            else if (c == 0xD1 && c2 == 0x8C) res += "";
+            // э (D1 8D)
+            else if (c == 0xD1 && c2 == 0x8D) res += 'e';
+            // ю (D1 8E)
+            else if (c == 0xD1 && c2 == 0x8E) res += "yu";
+            // я (D1 8F)
+            else if (c == 0xD1 && c2 == 0x8F) res += "ya";
+            // А (D0 90)
+            else if (c == 0xD0 && c2 == 0x90) res += 'a';
+            // Б (D0 91)
+            else if (c == 0xD0 && c2 == 0x91) res += 'b';
+            // В (D0 92)
+            else if (c == 0xD0 && c2 == 0x92) res += 'v';
+            // Г (D0 93)
+            else if (c == 0xD0 && c2 == 0x93) res += 'g';
+            // Д (D0 94)
+            else if (c == 0xD0 && c2 == 0x94) res += 'd';
+            // Е (D0 95)
+            else if (c == 0xD0 && c2 == 0x95) res += 'e';
+            // Ё (D0 81)
+            else if (c == 0xD0 && c2 == 0x81) res += "yo";
+            // Ж (D0 96)
+            else if (c == 0xD0 && c2 == 0x96) res += "zh";
+            // З (D0 97)
+            else if (c == 0xD0 && c2 == 0x97) res += 'z';
+            // И (D0 98)
+            else if (c == 0xD0 && c2 == 0x98) res += 'i';
+            // Й (D0 99)
+            else if (c == 0xD0 && c2 == 0x99) res += 'y';
+            // К (D0 9A)
+            else if (c == 0xD0 && c2 == 0x9A) res += 'k';
+            // Л (D0 9B)
+            else if (c == 0xD0 && c2 == 0x9B) res += 'l';
+            // М (D0 9C)
+            else if (c == 0xD0 && c2 == 0x9C) res += 'm';
+            // Н (D0 9D)
+            else if (c == 0xD0 && c2 == 0x9D) res += 'n';
+            // О (D0 9E)
+            else if (c == 0xD0 && c2 == 0x9E) res += 'o';
+            // П (D0 9F)
+            else if (c == 0xD0 && c2 == 0x9F) res += 'p';
+            // Р (D0 A0)
+            else if (c == 0xD0 && c2 == 0xA0) res += 'r';
+            // С (D0 A1)
+            else if (c == 0xD0 && c2 == 0xA1) res += 's';
+            // Т (D0 A2)
+            else if (c == 0xD0 && c2 == 0xA2) res += 't';
+            // У (D0 A3)
+            else if (c == 0xD0 && c2 == 0xA3) res += 'u';
+            // Ф (D0 A4)
+            else if (c == 0xD0 && c2 == 0xA4) res += 'f';
+            // Х (D0 A5)
+            else if (c == 0xD0 && c2 == 0xA5) res += 'h';
+            // Ц (D0 A6)
+            else if (c == 0xD0 && c2 == 0xA6) res += 'c';
+            // Ч (D0 A7)
+            else if (c == 0xD0 && c2 == 0xA7) res += "ch";
+            // Ш (D0 A8)
+            else if (c == 0xD0 && c2 == 0xA8) res += "sh";
+            // Щ (D0 A9)
+            else if (c == 0xD0 && c2 == 0xA9) res += "sch";
+            // Ъ (D0 AA)
+            else if (c == 0xD0 && c2 == 0xAA) res += "";
+            // Ы (D0 AB)
+            else if (c == 0xD0 && c2 == 0xAB) res += 'y';
+            // Ь (D0 AC)
+            else if (c == 0xD0 && c2 == 0xAC) res += "";
+            // Э (D0 AD)
+            else if (c == 0xD0 && c2 == 0xAD) res += 'e';
+            // Ю (D0 AE)
+            else if (c == 0xD0 && c2 == 0xAE) res += "yu";
+            // Я (D0 AF)
+            else if (c == 0xD0 && c2 == 0xAF) res += "ya";
+            else res += '?';
+            
+            i += 2;
+        }
+        else {
+            i++;
+        }
+    }
+    return res;
+}
+
+string capitalizeFirstUtf8(const string& s) {
+    if (s.empty()) return s;
+\
+    int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, NULL, 0);
+    if (len == 0) return s;
+    
+    vector<wchar_t> wbuf(len);
+    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, wbuf.data(), len);
+    wstring ws(wbuf.data());
+    
+    if (ws.empty()) return s;
+    
+    // Первая буква — заглавная
+    wchar_t first = ws[0];
+    // а-п (0x430-0x43F) → А-П (0x410-0x41F)
+    if (first >= 0x430 && first <= 0x43F) first = first - 0x20;
+    // р-я (0x440-0x44F) → Р-Я (0x420-0x42F)
+    else if (first >= 0x440 && first <= 0x44F) first = first - 0x20;
+    // ё (0x451) → Ё (0x401)
+    else if (first == 0x451) first = 0x401;
+    // a-z → A-Z
+    else if (first >= 'a' && first <= 'z') first = first - 32;
+    ws[0] = first;
+    
+    // Остальные буквы — строчные
+    for (size_t i = 1; i < ws.size(); i++) {
+        wchar_t c = ws[i];
+        // А-П (0x410-0x41F) → а-п (0x430-0x43F)
+        if (c >= 0x410 && c <= 0x41F) c = c + 0x20;
+        // Р-Я (0x420-0x42F) → р-я (0x440-0x44F)
+        else if (c >= 0x420 && c <= 0x42F) c = c + 0x20;
+        // Ё (0x401) → ё (0x451)
+        else if (c == 0x401) c = 0x451;
+        // A-Z → a-z
+        else if (c >= 'A' && c <= 'Z') c = c + 32;
+        ws[i] = c;
+    }
+
+    int utf8_len = WideCharToMultiByte(CP_UTF8, 0, ws.c_str(), -1, NULL, 0, NULL, NULL);
+    if (utf8_len == 0) return "";
+    
+    vector<char> utf8_buf(utf8_len);
+    WideCharToMultiByte(CP_UTF8, 0, ws.c_str(), -1, utf8_buf.data(), utf8_len, NULL, NULL);
+    
+    return string(utf8_buf.data());
+}
+
+
+
 bool validateUser(string& surname, string& name, string& patronymic,
                   string& birth, string& phone, string& email) {
     bool ok = true;
 
-    // --- ФИО: только буквы (кириллица/латиница), дефис; приводим регистр ---
-    regex nameRe("^[A-Za-zА-Яа-яЁё-]+$");
-    if (!regex_match(surname, nameRe))    { cout << "Ошибка в фамилии\n";  ok = false; }
-    if (!regex_match(name, nameRe))       { cout << "Ошибка в имени\n";    ok = false; }
-    if (!regex_match(patronymic, nameRe)) { cout << "Ошибка в отчестве\n"; ok = false; }
-    surname    = normalizeWord(surname);
-    name       = normalizeWord(name);
-    patronymic = normalizeWord(patronymic);
+    surname = trim(surname);
+    name = trim(name);
+    patronymic = trim(patronymic);
+    birth = trim(birth);
+    phone = trim(phone);
+    email = trim(email);
 
-    // --- Дата рождения: принимаем YYYY-MM-DD, DD.MM.YYYY, DD/MM/YYYY ---
-    // приводим к DD.MM.YYYY
-    {
-        smatch m;
-        regex reYMD("^(\\d{4})-(\\d{2})-(\\d{2})$");
-        regex reDMY("^(\\d{2})[./](\\d{2})[./](\\d{4})$");
-        if (regex_match(birth, m, reYMD)) {
-            birth = m[3].str() + "." + m[2].str() + "." + m[1].str();
-        } else if (regex_match(birth, m, reDMY)) {
-            birth = m[1].str() + "." + m[2].str() + "." + m[3].str();
-        } else {
-            cout << "Ошибка в дате рождения\n";
-            ok = false;
-        }
+    surname    = capitalizeFirstUtf8(cleanNameString(surname));
+    name       = capitalizeFirstUtf8(cleanNameString(name));
+    patronymic = capitalizeFirstUtf8(cleanNameString(patronymic));
+
+    if (surname.empty() || name.empty()) {
+        cout << "Ошибка: Фамилия или имя пусты после очистки.\n";
+        ok = false;
     }
 
-    // --- Телефон: убираем все разделители, приводим к +7XXXXXXXXXX ---
-    {
-        string digits;
-        for (char c : phone)
-            if (isdigit((unsigned char)c)) digits += c;
-        // ожидаем 11 цифр, начинающихся с 7 или 8
-        if (digits.size() == 11 && (digits[0] == '7' || digits[0] == '8')) {
-            digits[0] = '7';
-            phone = "+" + digits;
-        } else {
-            cout << "Ошибка в телефоне\n";
-            ok = false;
-        }
+    smatch m;
+    regex reYMD("^(\\d{4})-(\\d{2})-(\\d{2})$");
+    regex reDMY("^(\\d{2})[./](\\d{2})[./](\\d{4})$");
+    
+    if (regex_match(birth, m, reYMD)) {
+        birth = m[3].str() + "." + m[2].str() + "." + m[1].str();
+    } else if (regex_match(birth, m, reDMY)) {
+        birth = m[1].str() + "." + m[2].str() + "." + m[3].str();
+    } else {
+        cout << "Ошибка: Неверный формат даты: '" << birth << "'\n";
+        ok = false;
     }
 
-    // --- Почта: проверка формата и приведение к нижнему регистру ---
-    {
-        regex emailRe("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$");
-        if (regex_match(email, emailRe)) {
-            for (char& c : email) c = tolower((unsigned char)c);
-        } else {
-            cout << "Ошибка в почте\n";
-            ok = false;
+    string digits;
+    for (char c : phone) {
+        if (isdigit((unsigned char)c)) digits += c;
+    }
+    if (digits.size() == 11 && (digits[0] == '7' || digits[0] == '8')) {
+        digits[0] = '7';
+        phone = "+" + digits;
+    } else if (digits.size() == 10) {
+        phone = "+7" + digits;
+    } else {
+        cout << "Ошибка: Неверное количество цифр в телефоне (" << digits.size() << ").\n";
+        ok = false;
+    }
+
+    string cleanEmail;
+    for (char c : email) {
+        if (c != ' ') {
+            cleanEmail += tolower((unsigned char)c);
         }
     }
+    email = cleanEmail;
+    
+    regex emailRe("^[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}$");
+    if (!regex_match(email, emailRe)) {
+        cout << "Ошибка: Неверный формат почты: '" << email << "'\n";
+        ok = false;
+    }
+
     return ok;
 }
 
-// 3c. Генератор случайных данных
 string randomFrom(const vector<string>& v) {
     return v[rand() % v.size()];
 }
@@ -181,73 +407,82 @@ void generateUser(string& surname, string& name, string& patronymic,
     name       = randomFrom(names);
     patronymic = randomFrom(patronyms);
 
-    // дата: 1970-01-01 .. 2005-12-31
     int year  = 1970 + rand() % 36;
     int month = 1 + rand() % 12;
     int day   = 1 + rand() % 28;
-    char buf[32];
+    char buf[64];
     snprintf(buf, sizeof(buf), "%04d-%02d-%02d", year, month, day);
     birth = buf;
 
-    // телефон: +7996-XXXX-XXX
     snprintf(buf, sizeof(buf), "+7996-%04d-%03d", rand() % 10000, rand() % 1000);
     phone = buf;
 
-    // почта: фамилия в нижнем регистре + случайное число
-    string lower = surname;
-    for (char& c : lower) c = tolower((unsigned char)c);
-    snprintf(buf, sizeof(buf), "%s%d@pochta.ru", lower.c_str(), rand() % 1000);
+    string translit_surname = transliterate(surname);
+    for (char& c : translit_surname) c = tolower((unsigned char)c);
+    snprintf(buf, sizeof(buf), "%s%d@pochta.ru", translit_surname.c_str(), rand() % 1000);
     email = buf;
 }
 
-// ============================================================
-// main
-// ============================================================
 int main() {
-    SetConsoleCP(65001);       // Устанавливаем кодировку ввода UTF-8
-    SetConsoleOutputCP(65001); // Устанавливаем кодировку вывода UTF-8
+    setlocale(LC_ALL, ".UTF-8");
+    system("chcp 65001 > nul");
+    SetConsoleOutputCP(65001);
     srand((unsigned)time(nullptr));
 
-    // ---------- 1 и 2: HTML ----------
-    string html =
-        "<html><body>"
-        "<h1>Заголовок</h1>"
-        "<p>Первый абзац.</p>"
-        "<p>Второй абзац.</p>"
-        "<ul><li>пункт 1</li><li>пункт 2</li></ul>"
-        "<ol><li>раз</li><li>два</li></ol>"
-        "</body></html>";
+    string filename = "test.html";
+    ifstream file(filename);
+    
+    if (!file.is_open()) {
+        cout << "Файл " << filename << " не найден. Используем встроенный тест.\n";
+        filename = "Встроенный тест";
+    }
 
-    if (checkHtml(html))
+    stringstream buffer;
+    buffer << file.rdbuf();
+    string html_text = buffer.str();
+
+    if (html_text.empty()) {
+        html_text = "<html><body>\n<h1>Привет, мир!</h1>\n<p>Это абзац.</p>\n<ul>\n<li>Пункт 1</li>\n<li>Пункт 2</li>\n</ul>\n</body></html>";
+    }
+
+    cout << "--- Анализ файла: " << filename << " ---\n";
+    if (checkHtml(html_text)) {
         cout << "HTML корректен.\n";
+        printVector("Заголовки", findHeaders(html_text));
+        printVector("Абзацы",    findParagraphs(html_text));
+        printVector("Списки",    findLists(html_text));
+    } else {
+        cout << "Файл не является корректным HTML.\n";
+    }
 
-    printVector("Заголовки", findHeaders(html));
-    printVector("Абзацы",    findParagraphs(html));
-    printVector("Списки",    findLists(html));
-
-    // Проверка «плохого» текста
-    cout << "\n--- Проверка Markdown-текста ---\n";
-    checkHtml("# Заголовок\n**жирный**");
-
-    // ---------- 3: анкета ----------
     cout << "\n--- Анкета ---\n";
     string s, n, p, b, ph, e;
 
-    cout << "1) Ручной ввод\n";
-    inputUser(s, n, p, b, ph, e);
-    if (validateUser(s, n, p, b, ph, e))
-        cout << "Результат: " << s << " " << n << " " << p << " "
-             << b << " " << ph << " " << e << "\n";
-    else
-        cout << "Данные некорректны.\n";
+    cout << "1) Ручной ввод (введите данные, можно с ошибками):\n";
+    cout << "Фамилия: "; getline(cin >> ws, s);
+    cout << "Имя: "; getline(cin, n);
+    cout << "Отчество: "; getline(cin, p);
+    cout << "Дата рождения (ГГГГ-ММ-ДД или ДД.ММ.ГГГГ): "; getline(cin, b);
+    cout << "Телефон: "; getline(cin, ph);
+    cout << "Почта: "; getline(cin, e);
 
-    cout << "\n2) Сгенерированные данные\n";
+    cout << "\n[Обработка данных...]\n";
+    if (validateUser(s, n, p, b, ph, e)) {
+        cout << "Успешно исправлено и проверено:\n";
+        cout << s << " " << n << " " << p << " | " << b << " | " << ph << " | " << e << "\n";
+    } else {
+        cout << "Данные содержат критические ошибки и не могут быть исправлены.\n";
+        cout << "Текущее состояние: " << s << " " << n << " " << p << " | " << b << " | " << ph << " | " << e << "\n";
+    }
+
+    cout << "\n2) Сгенерированные данные:\n";
     generateUser(s, n, p, b, ph, e);
-    cout << "Сгенерировано: " << s << " " << n << " " << p << " "
-         << b << " " << ph << " " << e << "\n";
-    if (validateUser(s, n, p, b, ph, e))
-        cout << "После проверки: " << s << " " << n << " " << p << " "
-             << b << " " << ph << " " << e << "\n";
+    cout << "Сгенерировано: " << s << " " << n << " " << p << " | " << b << " | " << ph << " | " << e << "\n";
+    
+    if (validateUser(s, n, p, b, ph, e)) {
+        cout << "Генератор выдал корректные данные, проверка пройдена:\n";
+        cout << s << " " << n << " " << p << " | " << b << " | " << ph << " | " << e << "\n";
+    }
 
     return 0;
 }

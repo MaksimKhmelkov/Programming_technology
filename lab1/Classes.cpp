@@ -87,7 +87,7 @@ void WordCounter::print(const std::string& outFilename) const {
     }
 
     for (const auto& p : counter_){
-        out << p.first << ' - ' << p.second << "\n";
+        out << p.first << " - " << p.second << "\n";
     }
     
     std::printf("Результат задания 1 записан в файл: %s\n", outFilename.c_str());
